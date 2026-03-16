@@ -1,0 +1,11 @@
+services:
+  - type: web
+    name: velaris-backend
+    runtime: python
+    buildCommand: pip install -r requirements.txt
+    startCommand: gunicorn main:app -w 2 -k uvicorn.workers.UvicornWorker --bind 0.0.0.0:$PORT
+    envVars:
+      - key: FIREBASE_CREDENTIALS_PATH
+        value: ./serviceAccountKey.json
+      - key: FIREBASE_PROJECT_ID
+        value: velarox-website
