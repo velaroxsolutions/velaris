@@ -5,7 +5,7 @@ import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 import { StatusBar } from 'expo-status-bar';
 import { View, ActivityIndicator } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
-
+import { PatternsScreen } from './src/screens/main/PatternsScreen';
 import { AuthProvider, useAuth } from './src/context/AuthContext';
 import { LoginScreen } from './src/screens/auth/LoginScreen';
 import { SignUpScreen } from './src/screens/auth/SignUpScreen';
@@ -36,6 +36,8 @@ function MainTabs() {
           const icons = {
             Home: focused ? 'home' : 'home-outline',
             Trips: focused ? 'map' : 'map-outline',
+            Patterns: focused ? 'analytics' : 'analytics-outline',
+
           };
           return <Ionicons name={icons[route.name]} size={size} color={color} />;
         },
@@ -43,6 +45,7 @@ function MainTabs() {
     >
       <Tab.Screen name="Home" component={HomeScreen} />
       <Tab.Screen name="Trips" component={TripsScreen} />
+      <Tab.Screen name="Patterns" component={PatternsScreen} />
     </Tab.Navigator>
   );
 }

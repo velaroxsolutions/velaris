@@ -4,6 +4,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { collection, addDoc, serverTimestamp } from 'firebase/firestore';
 import { db } from '../config/firebase';
 import { calculateDistance } from '../utils/tripHelpers';
+import { syncTripToBackend } from './apiService';
 
 export const LOCATION_TASK = 'velaris-location-task';
 
@@ -132,7 +133,7 @@ async function closeTrip(activeTrip, buffer, endLat, endLng, endTime) {
 
         await addDoc(collection(db, 'velaris_trips', userId, 'trips'), tripData);
         console.log('Trip saved:', Math.round(totalDistance) + 'm');
-
+        await syncTripToBackend(tripData);
         await clearTripState();
     } catch (err) {
         console.error('Error closing trip:', err);

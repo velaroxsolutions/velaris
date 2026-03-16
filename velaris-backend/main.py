@@ -107,6 +107,18 @@ async def get_patterns(lat: float, lng: float, user=Depends(get_current_user)):
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
+
+@app.post("/patterns/analyze")
+async def analyze_patterns(user=Depends(get_current_user)):
+    try:
+        uid = user["uid"]
+        from services.pattern_engine import run_pattern_engine
+        run_pattern_engine(uid, db)
+        return {"status": "Pattern engine ran successfully"}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+    
+    
 def haversine(lat1, lon1, lat2, lon2):
     import math
     R = 6371e3
