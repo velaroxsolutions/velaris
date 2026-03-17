@@ -16,10 +16,10 @@ const STORAGE_KEYS = {
 };
 
 const CONFIG = {
-    MOVEMENT_THRESHOLD_METERS: 30,
-    STOP_TIMEOUT_MS: 1 * 60 * 1000,   // 5 minutes stopped = trip ends
-    MIN_TRIP_DISTANCE_METERS: 200,      // ignore tiny movements
-    MIN_TRIP_POINTS: 3,                 // need at least 3 GPS points
+  MOVEMENT_THRESHOLD_METERS: 5,      // was 30 — tracks even tiny movements
+  STOP_TIMEOUT_MS: 1 * 60 * 1000,   // was 5 mins — closes trip after 1 min stopped
+  MIN_TRIP_DISTANCE_METERS: 50,      // was 200 — saves even short trips
+  MIN_TRIP_POINTS: 2,                // was 3 — only needs 2 GPS points
 };
 
 // ─── Background Task Definition ───────────────────────────────────────────────
@@ -180,8 +180,8 @@ export async function startLocationTracking(userId) {
 
     await Location.startLocationUpdatesAsync(LOCATION_TASK, {
         accuracy: Location.Accuracy.Balanced,
-        timeInterval: 30000,       // every 30 seconds
-        distanceInterval: 30,      // or every 30 metres
+        timeInterval: 10000,       // every 30 seconds
+        distanceInterval: 5,      // or every 30 metres
         showsBackgroundLocationIndicator: true,
         foregroundService: {
             notificationTitle: 'Velaris',

@@ -36,14 +36,7 @@ export function TripsScreen() {
         if (tracking) {
             setTracking(false);
         } else {
-            // MOCK: Real tracking requires a dev build
-            // This lets us build and test the rest of the app
             setTracking(true);
-            Alert.alert(
-                'Tracking Simulated',
-                'Real GPS tracking will work in the final build. UI is fully functional.',
-                [{ text: 'OK' }]
-            );
         }
     };
 
