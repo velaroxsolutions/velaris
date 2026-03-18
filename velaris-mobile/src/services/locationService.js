@@ -16,11 +16,12 @@ const STORAGE_KEYS = {
 };
 
 const CONFIG = {
-  MOVEMENT_THRESHOLD_METERS: 5,      // was 30 — tracks even tiny movements
-  STOP_TIMEOUT_MS: 1 * 60 * 1000,   // was 5 mins — closes trip after 1 min stopped
-  MIN_TRIP_DISTANCE_METERS: 50,      // was 200 — saves even short trips
-  MIN_TRIP_POINTS: 2,                // was 3 — only needs 2 GPS points
+  MOVEMENT_THRESHOLD_METERS: 1,      // 1 metre — any movement at all
+  STOP_TIMEOUT_MS: 1 * 60 * 1000,   // 1 minute stop closes trip
+  MIN_TRIP_DISTANCE_METERS: 5,       // 5 metres minimum trip
+  MIN_TRIP_POINTS: 2,                // just 2 GPS points needed
 };
+
 
 // ─── Background Task Definition ───────────────────────────────────────────────
 // This runs even when the app is closed
@@ -42,6 +43,7 @@ TaskManager.defineTask(LOCATION_TASK, async ({ data, error }) => {
 // ─── Core Logic ───────────────────────────────────────────────────────────────
 
 async function processLocationUpdate(latitude, longitude, timestamp) {
+    console.log(`GPS point received: ${latitude}, ${longitude} at ${new Date(timestamp).toLocaleTimeString()}`);
     try {
         const bufferRaw = await AsyncStorage.getItem(STORAGE_KEYS.GPS_BUFFER);
         const buffer = bufferRaw ? JSON.parse(bufferRaw) : [];
@@ -180,8 +182,8 @@ export async function startLocationTracking(userId) {
 
     await Location.startLocationUpdatesAsync(LOCATION_TASK, {
         accuracy: Location.Accuracy.Balanced,
-        timeInterval: 10000,       // every 30 seconds
-        distanceInterval: 5,      // or every 30 metres
+        timeInterval: 5000,       // every 30 seconds
+        distanceInterval: 1,      // or every 30 metres
         showsBackgroundLocationIndicator: true,
         foregroundService: {
             notificationTitle: 'Velaris',
