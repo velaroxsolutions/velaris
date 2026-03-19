@@ -63,12 +63,14 @@ async def save_trip(trip: dict, user=Depends(get_current_user)):
             "syncedAt": firestore.SERVER_TIMESTAMP,
         }
 
-        # Save to velaris_trips/{uid}/trips/{auto-id}
         ref = db.collection("velaris_trips").document(uid).collection("trips").add(trip_data)
-        
-        # Trigger pattern engine after saving
+
+        # Run pattern engine in background thread — don't block the response
+        import threading
         from services.pattern_engine import run_pattern_engine
-        run_pattern_engine(uid, db)
+        thread = threading.Thread(target=run_pattern_engine, args=(uid, db))
+        thread.daemon = True
+        thread.start()
 
         return {"status": "saved", "tripId": ref[1].id}
 
@@ -76,7 +78,6 @@ async def save_trip(trip: dict, user=Depends(get_current_user)):
         raise HTTPException(status_code=400, detail=f"Missing field: {e}")
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
-
 @app.get("/trips")
 async def get_trips(user=Depends(get_current_user)):
     try:
@@ -112,13 +113,16 @@ async def get_patterns(lat: float, lng: float, user=Depends(get_current_user)):
 async def analyze_patterns(user=Depends(get_current_user)):
     try:
         uid = user["uid"]
+        import threading
         from services.pattern_engine import run_pattern_engine
-        run_pattern_engine(uid, db)
-        return {"status": "Pattern engine ran successfully"}
+        thread = threading.Thread(target=run_pattern_engine, args=(uid, db))
+        thread.daemon = True
+        thread.start()
+        return {"status": "Pattern engine started in background"}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
     
-    
+        
 def haversine(lat1, lon1, lat2, lon2):
     import math
     R = 6371e3
