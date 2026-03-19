@@ -16,12 +16,11 @@ const STORAGE_KEYS = {
 };
 
 const CONFIG = {
-  MOVEMENT_THRESHOLD_METERS: 1,      // 1 metre — any movement at all
-  STOP_TIMEOUT_MS: 1 * 60 * 1000,   // 1 minute stop closes trip
-  MIN_TRIP_DISTANCE_METERS: 5,       // 5 metres minimum trip
-  MIN_TRIP_POINTS: 2,                // just 2 GPS points needed
+  MOVEMENT_THRESHOLD_METERS: 10,     // needs 10m movement to register
+  STOP_TIMEOUT_MS: 30000,            // 30 seconds stopped = trip ends
+  MIN_TRIP_DISTANCE_METERS: 50,      // at least 50m total trip
+  MIN_TRIP_POINTS: 3,                // at least 3 GPS points
 };
-
 
 // ─── Background Task Definition ───────────────────────────────────────────────
 // This runs even when the app is closed
@@ -164,10 +163,14 @@ async function clearTripState() {
 // ─── Public API ───────────────────────────────────────────────────────────────
 
 export async function requestLocationPermissions() {
+    console.log('Requesting foreground permission...');
     const { status: foreground } = await Location.requestForegroundPermissionsAsync();
+    console.log('Foreground status:', foreground);
     if (foreground !== 'granted') return false;
 
+    console.log('Requesting background permission...');
     const { status: background } = await Location.requestBackgroundPermissionsAsync();
+    console.log('Background status:', background);
     if (background !== 'granted') return false;
 
     return true;
@@ -181,9 +184,9 @@ export async function startLocationTracking(userId) {
     if (isTracking) return;
 
     await Location.startLocationUpdatesAsync(LOCATION_TASK, {
-        accuracy: Location.Accuracy.Balanced,
-        timeInterval: 5000,       // every 30 seconds
-        distanceInterval: 1,      // or every 30 metres
+        accuracy: Location.Accuracy.BestForNavigation,
+        timeInterval: 10000,        // every 3 seconds
+        distanceInterval: 10,       // every 1 metre
         showsBackgroundLocationIndicator: true,
         foregroundService: {
             notificationTitle: 'Velaris',

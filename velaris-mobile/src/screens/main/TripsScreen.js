@@ -21,6 +21,7 @@ export function TripsScreen() {
     const [tracking, setTracking] = useState(false);
     const [checkingStatus, setCheckingStatus] = useState(true);
     const flatListRef = useRef(null);
+    const [toggling, setToggling] = useState(false);
 
     useEffect(() => {
         checkTracking();
@@ -33,10 +34,31 @@ export function TripsScreen() {
     };
 
     const toggleTracking = async () => {
-        if (tracking) {
-            setTracking(false);
-        } else {
-            setTracking(true);
+        if (toggling) return; // prevent double press
+        setToggling(true);
+
+        try {
+            if (tracking) {
+                await stopLocationTracking();
+                setTracking(false);
+            } else {
+                console.log('Requesting permissions...');
+                const granted = await requestLocationPermissions();
+                console.log('Granted:', granted);
+                if (!granted) {
+                    Alert.alert('Permission Required', 'Enable background location in Settings.');
+                    return;
+                }
+                console.log('Starting tracking...');
+                await startLocationTracking(user.uid);
+                console.log('Tracking started, setting state...');
+                setTracking(true);
+            }
+        } catch (error) {
+            console.log('Toggle error:', error.message);
+            Alert.alert('Error', error.message);
+        } finally {
+            setToggling(false);
         }
     };
 
@@ -112,17 +134,17 @@ export function TripsScreen() {
                     style={[styles.trackingBtn, tracking && styles.trackingBtnActive]}
                     onPress={toggleTracking}
                     activeOpacity={0.8}
+                    disabled={toggling}
                 >
                     <Ionicons
-                        name={tracking ? 'stop-circle' : 'play-circle'}
+                        name={toggling ? 'hourglass-outline' : tracking ? 'stop-circle' : 'play-circle'}
                         size={18}
-                        color={tracking ? theme.colors.error : theme.colors.success}
+                        color={toggling ? theme.colors.textMuted : tracking ? theme.colors.error : theme.colors.success}
                     />
                     <Text style={[styles.trackingBtnText, tracking && styles.trackingBtnTextActive]}>
-                        {tracking ? 'Stop' : 'Start'}
+                        {toggling ? 'Please wait...' : tracking ? 'Stop' : 'Start'}
                     </Text>
-                </TouchableOpacity>
-            </View>
+                </TouchableOpacity>            </View>
 
             {tracking && (
                 <View style={styles.banner}>

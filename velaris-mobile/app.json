@@ -21,18 +21,21 @@
         "ACCESS_FINE_LOCATION",
         "ACCESS_COARSE_LOCATION",
         "ACCESS_BACKGROUND_LOCATION",
+        "FOREGROUND_SERVICE",
+        "FOREGROUND_SERVICE_LOCATION",
         "RECEIVE_BOOT_COMPLETED",
-        "VIBRATE",
-        "android.permission.ACCESS_COARSE_LOCATION",
-        "android.permission.ACCESS_FINE_LOCATION"
-      ]    },
+        "VIBRATE"
+      ]
+    },
     "plugins": [
       [
         "expo-location",
         {
           "locationAlwaysAndWhenInUsePermission": "Velaris learns your patterns to give you proactive suggestions. Location is only used while you're moving.",
           "locationAlwaysPermission": "Velaris needs background location to detect trips while your phone is in your pocket.",
-          "locationWhenInUsePermission": "Velaris uses your location to detect when a trip starts."
+          "locationWhenInUsePermission": "Velaris uses your location to detect when a trip starts.",
+          "isAndroidForegroundServiceEnabled": true,
+          "isAndroidBackgroundLocationEnabled": true
         }
       ],
       [

@@ -57,6 +57,8 @@ export function HomeScreen({ navigation }) {
   };
 
   const triggerPatternEngine = async () => {
+    const token = await auth.currentUser?.getIdToken();
+    console.log('TOKEN:', token);
     try {
       const token = await auth.currentUser?.getIdToken();
       const response = await fetch(
