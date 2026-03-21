@@ -45,3 +45,6 @@ venv/
 __pycache__/
 *.pyc
 .env
+serviceAccountKey.json
+node_modules/
+seedTrips.js
