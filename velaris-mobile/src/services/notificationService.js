@@ -2,6 +2,7 @@ import * as Notifications from 'expo-notifications';
 import * as Device from 'expo-device';
 import { Platform } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import { getAddressFromCoords } from './routingService';
 
 const STORAGE_KEYS = {
   PUSH_TOKEN: 'velaris_push_token',
@@ -58,40 +59,34 @@ export async function registerForPushNotifications() {
 
 export async function firePatternNotification(pattern) {
   try {
-    // Check cooldown — don't spam the user
     const lastRaw = await AsyncStorage.getItem(STORAGE_KEYS.LAST_NOTIFICATION);
     if (lastRaw) {
       const timeSinceLast = Date.now() - parseInt(lastRaw);
-      if (timeSinceLast < NOTIFICATION_COOLDOWN_MS) {
-        console.log('Notification cooldown active, skipping');
-        return;
-      }
+      if (timeSinceLast < NOTIFICATION_COOLDOWN_MS) return;
     }
 
-    const destLat = pattern.destLat.toFixed(3);
-    const destLng = pattern.destLng.toFixed(3);
+    // Resolve destination address for the notification message
+    const destAddress = await getAddressFromCoords(pattern.destLat, pattern.destLng);
+    const mapsUrl = `https://www.google.com/maps/dir/?api=1&destination=${pattern.destLat},${pattern.destLng}&travelmode=driving`;
 
     await Notifications.scheduleNotificationAsync({
       content: {
         title: 'Velaris',
-        body: `Heading to ${destLat}, ${destLng}? Your usual route is ready.`,
-        data: { pattern },
+        body: `Heading to ${destAddress}? Tap to open route.`,
+        data: { pattern, mapsUrl },
         sound: true,
       },
-      trigger: null, // fire immediately
+      trigger: null,
     });
 
     await AsyncStorage.setItem(
       STORAGE_KEYS.LAST_NOTIFICATION,
       Date.now().toString()
     );
-
-    console.log('Notification fired for pattern:', pattern.patternId);
   } catch (error) {
     console.error('Error firing notification:', error);
   }
 }
-
 // ─── Check patterns near location ────────────────────────────────────────────
 
 export async function checkAndFireNotification(latitude, longitude, patterns) {
@@ -100,26 +95,23 @@ export async function checkAndFireNotification(latitude, longitude, patterns) {
   const currentHour = new Date().getHours() + new Date().getMinutes() / 60;
 
   for (const pattern of patterns) {
-    // Check confidence threshold
     if (pattern.confidence < 0.8) continue;
 
-    // Check distance from pattern origin
     const distance = haversine(
       latitude, longitude,
       pattern.originLat, pattern.originLng
     );
     if (distance > 150) continue;
 
-    // Check time window — within 1 hour of usual departure
     const timeDiff = Math.abs(currentHour - pattern.avgDepartureHour);
-    const timeWithinWindow = timeDiff <= 1.0 || timeDiff >= 23.0; // handle midnight wrap
+    const timeWithinWindow = timeDiff <= 1.0 || timeDiff >= 23.0;
     if (!timeWithinWindow) continue;
 
-    // All checks passed — fire notification
     await firePatternNotification(pattern);
-    break; // only fire one notification at a time
+    break;
   }
 }
+
 
 function haversine(lat1, lon1, lat2, lon2) {
   const R = 6371e3;

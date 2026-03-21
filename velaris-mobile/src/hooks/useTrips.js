@@ -14,9 +14,8 @@ export function useTrips(limitCount = 50) {
     if (!user) return;
 
     const q = query(
-      collection(db, 'velaris_trips', user.uid, 'trips'),
+      collection(db, 'velaris', user.uid, 'trips'),
       orderBy('startTime', 'desc'),
-      limit(limitCount)
     );
 
     const unsubscribe = onSnapshot(q, (snapshot) => {

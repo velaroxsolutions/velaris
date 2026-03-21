@@ -7,6 +7,8 @@ import {
 } from 'firebase/auth';
 import { doc, setDoc, getDoc, serverTimestamp } from 'firebase/firestore';
 import { auth, db } from '../config/firebase';
+import { startLocationTracking, requestLocationPermissions, isTrackingActive } from '../services/locationService';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 
 const AuthContext = createContext({});
 
@@ -15,20 +17,32 @@ export function AuthProvider({ children }) {
   const [userProfile, setUserProfile] = useState(null);
   const [loading, setLoading] = useState(true);
 
-  useEffect(() => {
+
+useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, async (firebaseUser) => {
-      if (firebaseUser) {
-        setUser(firebaseUser);
-        await loadUserProfile(firebaseUser.uid);
-      } else {
-        setUser(null);
-        setUserProfile(null);
-      }
-      setLoading(false);
+        if (firebaseUser) {
+            setUser(firebaseUser);
+            await loadUserProfile(firebaseUser.uid);
+            
+            // Auto-start tracking unless user explicitly turned it off
+            const trackingDisabled = await AsyncStorage.getItem('velaris_tracking_disabled');
+            if (trackingDisabled !== 'true') {
+                const granted = await requestLocationPermissions().catch(() => false);
+                if (granted) {
+                    const alreadyTracking = await isTrackingActive();
+                    if (!alreadyTracking) {
+                        await startLocationTracking(firebaseUser.uid).catch(console.error);
+                    }
+                }
+            }
+        } else {
+            setUser(null);
+            setUserProfile(null);
+        }
+        setLoading(false);
     });
     return unsubscribe;
-  }, []);
-
+}, []);
   const loadUserProfile = async (uid) => {
     try {
       const docRef = doc(db, 'users', uid, 'details', 'profile');

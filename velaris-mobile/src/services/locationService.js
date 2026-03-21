@@ -5,6 +5,8 @@ import { collection, addDoc, serverTimestamp } from 'firebase/firestore';
 import { db } from '../config/firebase';
 import { calculateDistance } from '../utils/tripHelpers';
 import { syncTripToBackend } from './apiService';
+import { getAddressFromCoords } from './routingService';
+import { checkAndFireNotification } from './notificationService';
 
 export const LOCATION_TASK = 'velaris-location-task';
 
@@ -16,32 +18,70 @@ const STORAGE_KEYS = {
 };
 
 const CONFIG = {
-  MOVEMENT_THRESHOLD_METERS: 10,     // needs 10m movement to register
-  STOP_TIMEOUT_MS: 30000,            // 30 seconds stopped = trip ends
-  MIN_TRIP_DISTANCE_METERS: 50,      // at least 50m total trip
-  MIN_TRIP_POINTS: 3,                // at least 3 GPS points
+    MOVEMENT_THRESHOLD_METERS: 30,
+    STOP_TIMEOUT_MS: 5 * 60 * 1000,
+    MIN_TRIP_DISTANCE_METERS: 300,
+    MIN_TRIP_POINTS: 4,
 };
 
-// ─── Background Task Definition ───────────────────────────────────────────────
-// This runs even when the app is closed
 TaskManager.defineTask(LOCATION_TASK, async ({ data, error }) => {
     if (error) {
         console.error('Location task error:', error);
         return;
     }
-
     if (!data?.locations?.length) return;
-
     const location = data.locations[0];
     const { latitude, longitude } = location.coords;
     const timestamp = location.timestamp;
-
     await processLocationUpdate(latitude, longitude, timestamp);
 });
 
-// ─── Core Logic ───────────────────────────────────────────────────────────────
+export async function stopLocationTrackingPermanently() {
+    await AsyncStorage.setItem('velaris_tracking_disabled', 'true');
+    const isTracking = await Location.hasStartedLocationUpdatesAsync(LOCATION_TASK).catch(() => false);
+    if (isTracking) {
+        await Location.stopLocationUpdatesAsync(LOCATION_TASK);
+    }
+}
+
+async function checkPatternsNearLocation(latitude, longitude) {
+    try {
+        const userId = await AsyncStorage.getItem(STORAGE_KEYS.USER_ID);
+        if (!userId) return;
+
+        // Read patterns directly from Firestore
+        const { collection, query, where, getDocs } = await import('firebase/firestore');
+        const patternsQuery = query(
+            collection(db, 'velaris', userId, 'patterns'),
+            where('active', '==', true)
+        );
+        const snapshot = await getDocs(patternsQuery);
+        const patterns = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+
+        if (patterns.length === 0) return;
+
+        await checkAndFireNotification(latitude, longitude, patterns);
+    } catch (err) {
+        console.error('Pattern check error:', err);
+    }
+}
+
+export async function resumeLocationTracking(userId) {
+    await AsyncStorage.removeItem('velaris_tracking_disabled');
+    await AsyncStorage.setItem(STORAGE_KEYS.USER_ID, userId);
+    const isTracking = await Location.hasStartedLocationUpdatesAsync(LOCATION_TASK).catch(() => false);
+    if (!isTracking) {
+        await startLocationTracking(userId);
+    }
+}
+
+export async function isTrackingDisabledByUser() {
+    const val = await AsyncStorage.getItem('velaris_tracking_disabled');
+    return val === 'true';
+}
 
 async function processLocationUpdate(latitude, longitude, timestamp) {
+
     console.log(`GPS point received: ${latitude}, ${longitude} at ${new Date(timestamp).toLocaleTimeString()}`);
     try {
         const bufferRaw = await AsyncStorage.getItem(STORAGE_KEYS.GPS_BUFFER);
@@ -51,9 +91,6 @@ async function processLocationUpdate(latitude, longitude, timestamp) {
         const lastMovementRaw = await AsyncStorage.getItem(STORAGE_KEYS.LAST_MOVEMENT);
         const lastMovement = lastMovementRaw ? parseInt(lastMovementRaw) : null;
 
-        const newPoint = { latitude, longitude, timestamp };
-
-        // Check if we're actually moving
         let isMoving = false;
         if (buffer.length > 0) {
             const lastPoint = buffer[buffer.length - 1];
@@ -63,14 +100,11 @@ async function processLocationUpdate(latitude, longitude, timestamp) {
             );
             isMoving = distance > CONFIG.MOVEMENT_THRESHOLD_METERS;
         } else {
-            isMoving = true; // first point, assume moving
+            isMoving = true;
         }
 
         if (isMoving) {
-            // Update last movement time
             await AsyncStorage.setItem(STORAGE_KEYS.LAST_MOVEMENT, timestamp.toString());
-
-            // Start a new trip if one isn't active
             if (!activeTrip) {
                 const newTrip = {
                     startLat: latitude,
@@ -78,16 +112,13 @@ async function processLocationUpdate(latitude, longitude, timestamp) {
                     startTime: timestamp,
                 };
                 await AsyncStorage.setItem(STORAGE_KEYS.ACTIVE_TRIP, JSON.stringify(newTrip));
+                await checkPatternsNearLocation(latitude, longitude);
+
             }
-
-            // Add point to buffer
-            buffer.push(newPoint);
+            buffer.push({ latitude, longitude, timestamp });
             await AsyncStorage.setItem(STORAGE_KEYS.GPS_BUFFER, JSON.stringify(buffer));
-
         } else if (activeTrip && lastMovement) {
-            // Not moving — check if we've been stopped long enough to close the trip
             const timeStopped = timestamp - lastMovement;
-
             if (timeStopped >= CONFIG.STOP_TIMEOUT_MS) {
                 await closeTrip(activeTrip, buffer, latitude, longitude, timestamp);
             }
@@ -98,8 +129,11 @@ async function processLocationUpdate(latitude, longitude, timestamp) {
 }
 
 async function closeTrip(activeTrip, buffer, endLat, endLng, endTime) {
+    const saving = await AsyncStorage.getItem('velaris_saving_trip');
+    if (saving === 'true') return;
+    await AsyncStorage.setItem('velaris_saving_trip', 'true');
+
     try {
-        // Validate trip is worth saving
         if (buffer.length < CONFIG.MIN_TRIP_POINTS) {
             await clearTripState();
             return;
@@ -111,19 +145,24 @@ async function closeTrip(activeTrip, buffer, endLat, endLng, endTime) {
             return;
         }
 
-        // Get saved userId
         const userId = await AsyncStorage.getItem(STORAGE_KEYS.USER_ID);
         if (!userId) {
             await clearTripState();
             return;
         }
 
-        // Save trip to Firestore
+        const [startAddress, endAddress] = await Promise.all([
+            getAddressFromCoords(activeTrip.startLat, activeTrip.startLng),
+            getAddressFromCoords(endLat, endLng),
+        ]);
+
         const tripData = {
             startLat: activeTrip.startLat,
             startLng: activeTrip.startLng,
             endLat,
             endLng,
+            startAddress,
+            endAddress,
             startTime: activeTrip.startTime,
             endTime,
             duration: endTime - activeTrip.startTime,
@@ -132,12 +171,14 @@ async function closeTrip(activeTrip, buffer, endLat, endLng, endTime) {
             createdAt: serverTimestamp(),
         };
 
-        await addDoc(collection(db, 'velaris_trips', userId, 'trips'), tripData);
+        await addDoc(collection(db, 'velaris', userId, 'trips'), tripData);
         console.log('Trip saved:', Math.round(totalDistance) + 'm');
         await syncTripToBackend(tripData);
         await clearTripState();
     } catch (err) {
         console.error('Error closing trip:', err);
+    } finally {
+        await AsyncStorage.removeItem('velaris_saving_trip');
     }
 }
 
@@ -160,8 +201,6 @@ async function clearTripState() {
     ]);
 }
 
-// ─── Public API ───────────────────────────────────────────────────────────────
-
 export async function requestLocationPermissions() {
     console.log('Requesting foreground permission...');
     const { status: foreground } = await Location.requestForegroundPermissionsAsync();
@@ -177,16 +216,14 @@ export async function requestLocationPermissions() {
 }
 
 export async function startLocationTracking(userId) {
-    // Save userId so background task can access it
     await AsyncStorage.setItem(STORAGE_KEYS.USER_ID, userId);
-
     const isTracking = await Location.hasStartedLocationUpdatesAsync(LOCATION_TASK).catch(() => false);
     if (isTracking) return;
 
     await Location.startLocationUpdatesAsync(LOCATION_TASK, {
         accuracy: Location.Accuracy.BestForNavigation,
-        timeInterval: 10000,        // every 3 seconds
-        distanceInterval: 10,       // every 1 metre
+        timeInterval: 30000,
+        distanceInterval: 30,
         showsBackgroundLocationIndicator: true,
         foregroundService: {
             notificationTitle: 'Velaris',

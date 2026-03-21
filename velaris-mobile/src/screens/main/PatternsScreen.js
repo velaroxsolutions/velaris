@@ -1,13 +1,74 @@
 import React, { useEffect, useState } from 'react';
 import {
     View, Text, StyleSheet, FlatList,
-    ActivityIndicator, TouchableOpacity
+    ActivityIndicator,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { collection, query, where, onSnapshot } from 'firebase/firestore';
 import { db } from '../../config/firebase';
 import { useAuth } from '../../context/AuthContext';
+import { useAddress } from '../../hooks/useAddress';
 import { theme } from '../../utils/theme';
+
+function PatternCard({ item }) {
+    const originAddress = useAddress(item.originLat, item.originLng);
+    const destAddress = useAddress(item.destLat, item.destLng);
+
+    const confidencePct = Math.round(item.confidence * 100);
+    const confidenceColor =
+        item.confidence >= 0.8 ? theme.colors.success :
+        item.confidence >= 0.6 ? theme.colors.warning :
+        theme.colors.accentPrimary;
+
+    const formatHour = (hour) => {
+        const h = Math.floor(hour);
+        const m = Math.round((hour - h) * 60);
+        const period = h >= 12 ? 'PM' : 'AM';
+        const displayH = h % 12 || 12;
+        return `${displayH}:${m.toString().padStart(2, '0')} ${period}`;
+    };
+
+    return (
+        <View style={styles.patternCard}>
+            <View style={styles.cardHeader}>
+                <View style={styles.routeIcon}>
+                    <Ionicons name="git-branch-outline" size={16} color={theme.colors.accentPrimary} />
+                </View>
+                <View style={styles.confidenceBadge}>
+                    <View style={[styles.confidenceDot, { backgroundColor: confidenceColor }]} />
+                    <Text style={[styles.confidenceText, { color: confidenceColor }]}>
+                        {confidencePct}% confidence
+                    </Text>
+                </View>
+            </View>
+
+            <View style={styles.routeRow}>
+                <View style={styles.coordBlock}>
+                    <Text style={styles.coordLabel}>FROM</Text>
+                    <Text style={styles.coordValue} numberOfLines={2}>{originAddress}</Text>
+                </View>
+                <Ionicons name="arrow-forward" size={16} color={theme.colors.textMuted} />
+                <View style={styles.coordBlock}>
+                    <Text style={styles.coordLabel}>TO</Text>
+                    <Text style={styles.coordValue} numberOfLines={2}>{destAddress}</Text>
+                </View>
+            </View>
+
+            <View style={styles.statsRow}>
+                <View style={styles.stat}>
+                    <Ionicons name="repeat-outline" size={13} color={theme.colors.textMuted} />
+                    <Text style={styles.statText}>{item.tripCount} trips</Text>
+                </View>
+                <View style={styles.stat}>
+                    <Ionicons name="time-outline" size={13} color={theme.colors.textMuted} />
+                    <Text style={styles.statText}>
+                        Usually {formatHour(item.avgDepartureHour)}
+                    </Text>
+                </View>
+            </View>
+        </View>
+    );
+}
 
 export function PatternsScreen() {
     const { user } = useAuth();
@@ -18,7 +79,7 @@ export function PatternsScreen() {
         if (!user) return;
 
         const q = query(
-            collection(db, 'velaris_patterns', user.uid, 'patterns'),
+            collection(db, 'velaris', user.uid, 'patterns'),
             where('active', '==', true)
         );
 
@@ -37,69 +98,7 @@ export function PatternsScreen() {
         return unsubscribe;
     }, [user]);
 
-    const formatHour = (hour) => {
-        const h = Math.floor(hour);
-        const m = Math.round((hour - h) * 60);
-        const period = h >= 12 ? 'PM' : 'AM';
-        const displayH = h % 12 || 12;
-        return `${displayH}:${m.toString().padStart(2, '0')} ${period}`;
-    };
-
-    const renderPattern = ({ item }) => {
-        const confidencePct = Math.round(item.confidence * 100);
-        const confidenceColor = 
-            item.confidence >= 0.8 ? theme.colors.success :
-            item.confidence >= 0.6 ? theme.colors.warning :
-            theme.colors.accentPrimary;
-
-        return (
-            <View style={styles.patternCard}>
-                {/* Header */}
-                <View style={styles.cardHeader}>
-                    <View style={styles.routeIcon}>
-                        <Ionicons name="git-branch-outline" size={16} color={theme.colors.accentPrimary} />
-                    </View>
-                    <View style={styles.confidenceBadge}>
-                        <View style={[styles.confidenceDot, { backgroundColor: confidenceColor }]} />
-                        <Text style={[styles.confidenceText, { color: confidenceColor }]}>
-                            {confidencePct}% confidence
-                        </Text>
-                    </View>
-                </View>
-
-                {/* Route */}
-                <View style={styles.routeRow}>
-                    <View style={styles.coordBlock}>
-                        <Text style={styles.coordLabel}>FROM</Text>
-                        <Text style={styles.coordValue}>
-                            {item.originLat.toFixed(4)}, {item.originLng.toFixed(4)}
-                        </Text>
-                    </View>
-                    <Ionicons name="arrow-forward" size={16} color={theme.colors.textMuted} />
-                    <View style={styles.coordBlock}>
-                        <Text style={styles.coordLabel}>TO</Text>
-                        <Text style={styles.coordValue}>
-                            {item.destLat.toFixed(4)}, {item.destLng.toFixed(4)}
-                        </Text>
-                    </View>
-                </View>
-
-                {/* Stats */}
-                <View style={styles.statsRow}>
-                    <View style={styles.stat}>
-                        <Ionicons name="repeat-outline" size={13} color={theme.colors.textMuted} />
-                        <Text style={styles.statText}>{item.tripCount} trips</Text>
-                    </View>
-                    <View style={styles.stat}>
-                        <Ionicons name="time-outline" size={13} color={theme.colors.textMuted} />
-                        <Text style={styles.statText}>
-                            Usually {formatHour(item.avgDepartureHour)}
-                        </Text>
-                    </View>
-                </View>
-            </View>
-        );
-    };
+    const renderPattern = ({ item }) => <PatternCard item={item} />;
 
     return (
         <View style={styles.container}>

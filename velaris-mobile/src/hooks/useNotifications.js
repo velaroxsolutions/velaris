@@ -1,6 +1,7 @@
 import { useEffect, useRef } from 'react';
 import * as Notifications from 'expo-notifications';
 import Constants from 'expo-constants';
+import { Linking } from 'react-native';
 
 export function useNotifications(onNotificationResponse) {
   const notificationListener = useRef();
@@ -20,17 +21,20 @@ export function useNotifications(onNotificationResponse) {
     );
 
     responseListener.current = Notifications.addNotificationResponseReceivedListener(
-      (response) => {
-        const pattern = response.notification.request.content.data?.pattern;
-        if (pattern && onNotificationResponse) {
-          onNotificationResponse(pattern);
+      async (response) => {
+        const data = response.notification.request.content.data;
+        if (data?.mapsUrl) {
+          // Open Google Maps directly
+          await Linking.openURL(data.mapsUrl);
+        } else if (data?.pattern && onNotificationResponse) {
+          // Fall back to Route Card
+          onNotificationResponse(data.pattern);
         }
       }
     );
-
     return () => {
-      Notifications.removeNotificationSubscription(notificationListener.current);
-      Notifications.removeNotificationSubscription(responseListener.current);
+      notificationListener.current?.remove();
+      responseListener.current?.remove();
     };
   }, []);
 }

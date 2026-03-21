@@ -1,82 +1,138 @@
 import React, { useEffect, useState } from 'react';
 import {
-  View, Text, StyleSheet, TouchableOpacity,
-  ScrollView, Alert
+  View, Text, StyleSheet, ScrollView,
+  TouchableOpacity,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
-import * as Notifications from 'expo-notifications';
-import { collection, query, onSnapshot, where } from 'firebase/firestore';
-import { db } from '../../config/firebase';
+import { collection, query, onSnapshot, orderBy, limit, where } from 'firebase/firestore';
+import { db, auth } from '../../config/firebase';
 import { useAuth } from '../../context/AuthContext';
+import { isTrackingActive } from '../../services/locationService';
+import { useAddress } from '../../hooks/useAddress';
+import { formatDate, formatTime } from '../../utils/tripHelpers';
 import { theme } from '../../utils/theme';
-import { auth } from '../../config/firebase';
+
+function LastTripCard({ trip }) {
+  const startAddress = useAddress(trip.startLat, trip.startLng, trip.startAddress);
+  const endAddress = useAddress(trip.endLat, trip.endLng, trip.endAddress);
+
+  return (
+    <View style={styles.lastTripCard}>
+      <View style={styles.lastTripHeader}>
+        <Text style={styles.sectionLabel}>Last Trip</Text>
+        <Text style={styles.lastTripDate}>{formatDate(trip.startTime)}</Text>
+      </View>
+      <View style={styles.lastTripRoute}>
+        <View style={styles.routePoint}>
+          <View style={styles.dotOrigin} />
+          <Text style={styles.routeAddress} numberOfLines={1}>{startAddress}</Text>
+        </View>
+        <View style={styles.routeLine} />
+        <View style={styles.routePoint}>
+          <View style={styles.dotDest} />
+          <Text style={styles.routeAddress} numberOfLines={1}>{endAddress}</Text>
+        </View>
+      </View>
+      <View style={styles.lastTripMeta}>
+        <Text style={styles.metaText}>
+          {(trip.distanceMeters / 1000).toFixed(1)} km
+        </Text>
+        <View style={styles.metaDot} />
+        <Text style={styles.metaText}>
+          {formatTime(trip.startTime)}
+        </Text>
+      </View>
+    </View>
+  );
+}
+
+function TopPatternCard({ pattern }) {
+  const destAddress = useAddress(pattern.destLat, pattern.destLng);
+
+  return (
+    <View style={styles.patternPreviewCard}>
+      <View style={styles.patternPreviewHeader}>
+        <Text style={styles.sectionLabel}>Top Pattern</Text>
+        <View style={styles.confidencePill}>
+          <Text style={styles.confidencePillText}>
+            {Math.round(pattern.confidence * 100)}%
+          </Text>
+        </View>
+      </View>
+      <Text style={styles.patternDestText} numberOfLines={1}>{destAddress}</Text>
+      <Text style={styles.patternMetaText}>
+        {pattern.tripCount} trips · Usually {formatPatternHour(pattern.avgDepartureHour)}
+      </Text>
+    </View>
+  );
+}
+
+function formatPatternHour(hour) {
+  const h = Math.floor(hour);
+  const m = Math.round((hour - h) * 60);
+  const period = h >= 12 ? 'PM' : 'AM';
+  const displayH = h % 12 || 12;
+  return `${displayH}:${m.toString().padStart(2, '0')} ${period}`;
+}
 
 export function HomeScreen({ navigation }) {
   const { user, userProfile, logOut } = useAuth();
   const [tripCount, setTripCount] = useState(0);
   const [patternCount, setPatternCount] = useState(0);
+  const [lastTrip, setLastTrip] = useState(null);
+  const [topPattern, setTopPattern] = useState(null);
+  const [tracking, setTracking] = useState(false);
+
+  const firstName = userProfile?.name?.split(' ')[0] || user?.email?.split('@')[0] || 'there';
 
   useEffect(() => {
     if (!user) return;
 
-    // Listen to trip count
+    // Trips listener
     const tripsUnsub = onSnapshot(
-      collection(db, 'velaris_trips', user.uid, 'trips'),
+      query(
+        collection(db, 'velaris', user.uid, 'trips'),
+        orderBy('startTime', 'desc'),
+        limit(1)
+      ),
+      (snap) => {
+        setTripCount(snap.size);
+        if (!snap.empty) setLastTrip({ id: snap.docs[0].id, ...snap.docs[0].data() });
+      }
+    );
+
+    // Trip count
+    const countUnsub = onSnapshot(
+      collection(db, 'velaris', user.uid, 'trips'),
       (snap) => setTripCount(snap.size)
     );
 
-    // Listen to pattern count
+    // Patterns listener
     const patternsUnsub = onSnapshot(
       query(
-        collection(db, 'velaris_patterns', user.uid, 'patterns'),
+        collection(db, 'velaris', user.uid, 'patterns'),
         where('active', '==', true)
       ),
-      (snap) => setPatternCount(snap.size)
+      (snap) => {
+        setPatternCount(snap.size);
+        if (!snap.empty) {
+          const sorted = snap.docs
+            .map(d => ({ id: d.id, ...d.data() }))
+            .sort((a, b) => b.confidence - a.confidence);
+          setTopPattern(sorted[0]);
+        }
+      }
     );
+
+    // Tracking status
+    isTrackingActive().then(setTracking);
 
     return () => {
       tripsUnsub();
+      countUnsub();
       patternsUnsub();
     };
   }, [user]);
-
-  const testNotification = async () => {
-    const { status } = await Notifications.requestPermissionsAsync();
-    if (status !== 'granted') {
-      Alert.alert('Permission denied', 'Enable notifications in Settings');
-      return;
-    }
-    await Notifications.scheduleNotificationAsync({
-      content: {
-        title: 'Velaris',
-        body: 'Heading to 53.5232, -113.5263? Your usual route is ready.',
-        sound: true,
-      },
-      trigger: null,
-    });
-  };
-
-  const triggerPatternEngine = async () => {
-    const token = await auth.currentUser?.getIdToken();
-    console.log('TOKEN:', token);
-    try {
-      const token = await auth.currentUser?.getIdToken();
-      const response = await fetch(
-        `${process.env.EXPO_PUBLIC_BACKEND_URL}/patterns/analyze`,
-        {
-          method: 'POST',
-          headers: {
-            Authorization: `Bearer ${token}`,
-            'Content-Type': 'application/json',
-          },
-        }
-      );
-      const data = await response.json();
-      Alert.alert('Pattern Engine', JSON.stringify(data));
-    } catch (error) {
-      Alert.alert('Error', error.message);
-    }
-  };
 
   const greeting = () => {
     const hour = new Date().getHours();
@@ -85,120 +141,88 @@ export function HomeScreen({ navigation }) {
     return 'Good evening';
   };
 
-  const firstName = userProfile?.name?.split(' ')[0] || 'there';
-
   return (
-    <ScrollView style={styles.container} contentContainerStyle={styles.content}>
+    <ScrollView
+      style={styles.container}
+      contentContainerStyle={styles.content}
+      showsVerticalScrollIndicator={false}
+    >
       {/* Header */}
       <View style={styles.header}>
         <View>
-          <Text style={styles.greeting}>{greeting()},</Text>
+          <Text style={styles.greeting}>{greeting()}</Text>
           <Text style={styles.name}>{firstName}</Text>
         </View>
         <TouchableOpacity style={styles.avatar} onPress={logOut}>
-          <Text style={styles.avatarText}>
-            {firstName.charAt(0).toUpperCase()}
-          </Text>
+          <Ionicons name="log-out-outline" size={20} color={theme.colors.textSecondary} />
         </TouchableOpacity>
       </View>
 
-      {/* Logo */}
-      <View style={styles.logoRow}>
-        <Text style={styles.logo}>VELARIS</Text>
-        <Text style={styles.logoSub}>by Velarox</Text>
-      </View>
-
-      {/* Stats */}
-      <View style={styles.statsRow}>
-        <View style={styles.statCard}>
-          <Ionicons name="map-outline" size={22} color={theme.colors.accentPrimary} />
-          <Text style={styles.statValue}>{tripCount}</Text>
-          <Text style={styles.statLabel}>Trips logged</Text>
-        </View>
-        <View style={styles.statCard}>
-          <Ionicons name="analytics-outline" size={22} color={theme.colors.accentSecondary} />
-          <Text style={styles.statValue}>{patternCount}</Text>
-          <Text style={styles.statLabel}>Patterns found</Text>
-        </View>
-        <View style={styles.statCard}>
-          <Ionicons name="sparkles-outline" size={22} color={theme.colors.success} />
-          <Text style={styles.statValue}>
-            {patternCount > 0 ? 'On' : 'Off'}
-          </Text>
-          <Text style={styles.statLabel}>Intelligence</Text>
-        </View>
-      </View>
-
-      {/* Status card */}
-      <View style={styles.statusCard}>
-        <View style={styles.statusHeader}>
-          <Ionicons
-            name="information-circle-outline"
-            size={18}
-            color={theme.colors.accentPrimary}
-          />
-          <Text style={styles.statusTitle}>How Velaris works</Text>
-        </View>
-        <Text style={styles.statusBody}>
-          Go to the Trips tab and tap Start. Walk the same route 3 or more times
-          and Velaris will detect the pattern automatically. Once a pattern is
-          confirmed, you'll get a notification the next time you're near that origin.
+      {/* Status pill */}
+      <View style={[styles.statusPill, tracking ? styles.statusPillActive : styles.statusPillInactive]}>
+        <View style={[styles.statusDot, { backgroundColor: tracking ? theme.colors.success : theme.colors.textMuted }]} />
+        <Text style={[styles.statusText, { color: tracking ? theme.colors.success : theme.colors.textMuted }]}>
+          {tracking ? 'Learning your patterns' : 'Tracking paused'}
         </Text>
       </View>
 
-      {/* Quick actions */}
-      <Text style={styles.sectionTitle}>Quick actions</Text>
-      <View style={styles.actionsCol}>
+      {/* Stats row */}
+      <View style={styles.statsRow}>
+        <View style={styles.statCard}>
+          <Text style={styles.statValue}>{tripCount}</Text>
+          <Text style={styles.statLabel}>Trips</Text>
+        </View>
+        <View style={styles.statDivider} />
+        <View style={styles.statCard}>
+          <Text style={styles.statValue}>{patternCount}</Text>
+          <Text style={styles.statLabel}>Patterns</Text>
+        </View>
+        <View style={styles.statDivider} />
+        <View style={styles.statCard}>
+          <Text style={styles.statValue}>
+            {patternCount > 0 ? `${Math.round(topPattern?.confidence * 100 || 0)}%` : '—'}
+          </Text>
+          <Text style={styles.statLabel}>Confidence</Text>
+        </View>
+      </View>
+
+      {/* Last trip */}
+      {lastTrip && <LastTripCard trip={lastTrip} />}
+
+      {/* Top pattern */}
+      {topPattern && <TopPatternCard pattern={topPattern} />}
+
+      {/* Empty state */}
+      {tripCount === 0 && (
+        <View style={styles.emptyState}>
+          <View style={styles.emptyIconRing}>
+            <Ionicons name="navigate-outline" size={32} color={theme.colors.accentPrimary} />
+          </View>
+          <Text style={styles.emptyTitle}>Velaris is watching</Text>
+          <Text style={styles.emptySub}>
+            Go about your day normally.{'\n'}
+            Your patterns will appear here automatically.
+          </Text>
+        </View>
+      )}
+
+      {/* Nav hints */}
+      <View style={styles.navHints}>
         <TouchableOpacity
-          style={styles.actionCard}
+          style={styles.navHint}
           onPress={() => navigation.navigate('Trips')}
         >
-          <View style={[styles.actionIcon, { backgroundColor: 'rgba(123, 94, 167, 0.15)' }]}>
-            <Ionicons name="play-circle-outline" size={22} color={theme.colors.accentPrimary} />
-          </View>
-          <View style={styles.actionText}>
-            <Text style={styles.actionTitle}>Start tracking</Text>
-            <Text style={styles.actionSub}>Record a new trip</Text>
-          </View>
-          <Ionicons name="chevron-forward" size={18} color={theme.colors.textMuted} />
+          <Ionicons name="map-outline" size={16} color={theme.colors.textMuted} />
+          <Text style={styles.navHintText}>View all trips</Text>
+          <Ionicons name="chevron-forward" size={14} color={theme.colors.textMuted} />
         </TouchableOpacity>
-
         <TouchableOpacity
-          style={styles.actionCard}
+          style={styles.navHint}
           onPress={() => navigation.navigate('Patterns')}
         >
-          <View style={[styles.actionIcon, { backgroundColor: 'rgba(91, 141, 239, 0.15)' }]}>
-            <Ionicons name="git-branch-outline" size={22} color={theme.colors.accentSecondary} />
-          </View>
-          <View style={styles.actionText}>
-            <Text style={styles.actionTitle}>View patterns</Text>
-            <Text style={styles.actionSub}>See what Velaris learned</Text>
-          </View>
-          <Ionicons name="chevron-forward" size={18} color={theme.colors.textMuted} />
-        </TouchableOpacity>
-
-        <TouchableOpacity
-          style={styles.actionCard}
-          onPress={testNotification}
-        >
-          <View style={[styles.actionIcon, { backgroundColor: 'rgba(72, 187, 120, 0.15)' }]}>
-            <Ionicons name="notifications-outline" size={22} color={theme.colors.success} />
-          </View>
-          <View style={styles.actionText}>
-            <Text style={styles.actionTitle}>Test notification</Text>
-            <Text style={styles.actionSub}>Preview how alerts look</Text>
-          </View>
-          <Ionicons name="chevron-forward" size={18} color={theme.colors.textMuted} />
-        </TouchableOpacity>
-        <TouchableOpacity style={styles.actionCard} onPress={triggerPatternEngine}>
-          <View style={[styles.actionIcon, { backgroundColor: 'rgba(246, 173, 85, 0.15)' }]}>
-            <Ionicons name="flash-outline" size={22} color={theme.colors.warning} />
-          </View>
-          <View style={styles.actionText}>
-            <Text style={styles.actionTitle}>Run pattern engine</Text>
-            <Text style={styles.actionSub}>Analyse all trips now</Text>
-          </View>
-          <Ionicons name="chevron-forward" size={18} color={theme.colors.textMuted} />
+          <Ionicons name="analytics-outline" size={16} color={theme.colors.textMuted} />
+          <Text style={styles.navHintText}>View all patterns</Text>
+          <Ionicons name="chevron-forward" size={14} color={theme.colors.textMuted} />
         </TouchableOpacity>
       </View>
     </ScrollView>
@@ -207,135 +231,249 @@ export function HomeScreen({ navigation }) {
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: theme.colors.background },
-  content: { padding: theme.spacing.lg, paddingTop: 60, paddingBottom: theme.spacing.xxl },
+  content: {
+    padding: theme.spacing.lg,
+    paddingTop: 64,
+    paddingBottom: theme.spacing.xxl,
+    gap: theme.spacing.md,
+  },
   header: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'flex-start',
-    marginBottom: theme.spacing.xl,
+    marginBottom: theme.spacing.sm,
   },
   greeting: {
-    fontSize: 16,
-    color: theme.colors.textSecondary,
+    fontSize: 14,
+    color: theme.colors.textMuted,
+    letterSpacing: 0.3,
   },
   name: {
-    fontSize: 28,
+    fontSize: 32,
     fontWeight: '700',
     color: theme.colors.textPrimary,
+    letterSpacing: -0.5,
   },
   avatar: {
-    width: 44,
-    height: 44,
-    borderRadius: 22,
-    backgroundColor: theme.colors.accentPrimary,
+    width: 42,
+    height: 42,
+    borderRadius: 21,
+    backgroundColor: theme.colors.backgroundTertiary,
+    borderWidth: 1,
+    borderColor: theme.colors.border,
     alignItems: 'center',
     justifyContent: 'center',
   },
   avatarText: {
-    fontSize: 18,
-    fontWeight: '700',
-    color: theme.colors.textPrimary,
+    fontSize: 16,
+    fontWeight: '600',
+    color: theme.colors.textSecondary,
   },
-  logoRow: {
+  statusPill: {
+    flexDirection: 'row',
     alignItems: 'center',
-    marginBottom: theme.spacing.xl,
+    gap: 8,
+    alignSelf: 'flex-start',
+    paddingVertical: 6,
+    paddingHorizontal: 12,
+    borderRadius: theme.borderRadius.full,
+    borderWidth: 1,
   },
-  logo: {
-    fontSize: 32,
-    fontWeight: '800',
-    color: theme.colors.textPrimary,
-    letterSpacing: 8,
+  statusPillActive: {
+    backgroundColor: 'rgba(72, 187, 120, 0.08)',
+    borderColor: 'rgba(72, 187, 120, 0.2)',
   },
-  logoSub: {
+  statusPillInactive: {
+    backgroundColor: theme.colors.backgroundTertiary,
+    borderColor: theme.colors.border,
+  },
+  statusDot: {
+    width: 6,
+    height: 6,
+    borderRadius: 3,
+  },
+  statusText: {
     fontSize: 12,
-    color: theme.colors.accentPrimary,
-    letterSpacing: 2,
-    marginTop: 2,
+    fontWeight: '500',
   },
   statsRow: {
     flexDirection: 'row',
-    gap: theme.spacing.sm,
-    marginBottom: theme.spacing.lg,
+    backgroundColor: theme.colors.backgroundSecondary,
+    borderRadius: theme.borderRadius.md,
+    borderWidth: 1,
+    borderColor: theme.colors.border,
+    padding: theme.spacing.md,
+    alignItems: 'center',
   },
   statCard: {
     flex: 1,
-    backgroundColor: theme.colors.backgroundSecondary,
-    borderRadius: theme.borderRadius.md,
-    padding: theme.spacing.md,
     alignItems: 'center',
-    gap: 6,
-    borderWidth: 1,
-    borderColor: theme.colors.border,
+    gap: 4,
+  },
+  statDivider: {
+    width: 1,
+    height: 32,
+    backgroundColor: theme.colors.border,
   },
   statValue: {
-    fontSize: 22,
+    fontSize: 24,
     fontWeight: '700',
     color: theme.colors.textPrimary,
   },
   statLabel: {
     fontSize: 11,
-    color: theme.colors.textSecondary,
-    textAlign: 'center',
+    color: theme.colors.textMuted,
+    textTransform: 'uppercase',
+    letterSpacing: 0.5,
   },
-  statusCard: {
-    backgroundColor: 'rgba(123, 94, 167, 0.08)',
+  lastTripCard: {
+    backgroundColor: theme.colors.backgroundSecondary,
     borderRadius: theme.borderRadius.md,
-    padding: theme.spacing.md,
     borderWidth: 1,
-    borderColor: 'rgba(123, 94, 167, 0.2)',
-    marginBottom: theme.spacing.lg,
-    gap: 8,
+    borderColor: theme.colors.border,
+    padding: theme.spacing.md,
+    gap: theme.spacing.sm,
   },
-  statusHeader: {
+  lastTripHeader: {
     flexDirection: 'row',
+    justifyContent: 'space-between',
     alignItems: 'center',
-    gap: 6,
   },
-  statusTitle: {
-    fontSize: 14,
+  sectionLabel: {
+    fontSize: 11,
     fontWeight: '600',
-    color: theme.colors.accentPrimary,
-  },
-  statusBody: {
-    fontSize: 13,
-    color: theme.colors.textSecondary,
-    lineHeight: 20,
-  },
-  sectionTitle: {
-    fontSize: 13,
-    fontWeight: '700',
     color: theme.colors.textMuted,
     textTransform: 'uppercase',
     letterSpacing: 1,
-    marginBottom: theme.spacing.sm,
   },
-  actionsCol: { gap: theme.spacing.sm },
-  actionCard: {
+  lastTripDate: {
+    fontSize: 12,
+    color: theme.colors.textMuted,
+  },
+  lastTripRoute: {
+    gap: 4,
+  },
+  routePoint: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: theme.colors.backgroundSecondary,
-    borderRadius: theme.borderRadius.md,
-    padding: theme.spacing.md,
-    borderWidth: 1,
-    borderColor: theme.colors.border,
-    gap: 12,
+    gap: 10,
   },
-  actionIcon: {
-    width: 44,
-    height: 44,
-    borderRadius: theme.borderRadius.sm,
+  dotOrigin: {
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+    backgroundColor: theme.colors.accentPrimary,
+  },
+  dotDest: {
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+    backgroundColor: theme.colors.accentSecondary,
+  },
+  routeLine: {
+    width: 1,
+    height: 12,
+    backgroundColor: theme.colors.border,
+    marginLeft: 3.5,
+  },
+  routeAddress: {
+    fontSize: 14,
+    fontWeight: '500',
+    color: theme.colors.textPrimary,
+    flex: 1,
+  },
+  lastTripMeta: {
+    flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'center',
+    gap: 8,
+    paddingTop: 4,
+    borderTopWidth: 1,
+    borderTopColor: theme.colors.border,
   },
-  actionText: { flex: 1 },
-  actionTitle: {
-    fontSize: 15,
+  metaText: {
+    fontSize: 12,
+    color: theme.colors.textMuted,
+  },
+  metaDot: {
+    width: 3,
+    height: 3,
+    borderRadius: 1.5,
+    backgroundColor: theme.colors.textMuted,
+  },
+  patternPreviewCard: {
+    backgroundColor: 'rgba(123, 94, 167, 0.06)',
+    borderRadius: theme.borderRadius.md,
+    borderWidth: 1,
+    borderColor: 'rgba(123, 94, 167, 0.15)',
+    padding: theme.spacing.md,
+    gap: 6,
+  },
+  patternPreviewHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+  },
+  confidencePill: {
+    backgroundColor: 'rgba(123, 94, 167, 0.15)',
+    paddingHorizontal: 8,
+    paddingVertical: 2,
+    borderRadius: theme.borderRadius.full,
+  },
+  confidencePillText: {
+    fontSize: 11,
+    fontWeight: '700',
+    color: theme.colors.accentPrimary,
+  },
+  patternDestText: {
+    fontSize: 18,
     fontWeight: '600',
     color: theme.colors.textPrimary,
   },
-  actionSub: {
+  patternMetaText: {
     fontSize: 12,
     color: theme.colors.textSecondary,
-    marginTop: 2,
+  },
+  emptyState: {
+    alignItems: 'center',
+    gap: 12,
+    paddingVertical: theme.spacing.xl,
+  },
+  emptyIconRing: {
+    width: 72,
+    height: 72,
+    borderRadius: 36,
+    backgroundColor: 'rgba(123, 94, 167, 0.08)',
+    borderWidth: 1,
+    borderColor: 'rgba(123, 94, 167, 0.15)',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  emptyTitle: {
+    fontSize: 18,
+    fontWeight: '600',
+    color: theme.colors.textPrimary,
+  },
+  emptySub: {
+    fontSize: 14,
+    color: theme.colors.textSecondary,
+    textAlign: 'center',
+    lineHeight: 22,
+  },
+  navHints: {
+    gap: theme.spacing.xs,
+    marginTop: theme.spacing.sm,
+  },
+  navHint: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    paddingVertical: 12,
+    borderTopWidth: 1,
+    borderTopColor: theme.colors.border,
+  },
+  navHintText: {
+    flex: 1,
+    fontSize: 13,
+    color: theme.colors.textMuted,
   },
 });

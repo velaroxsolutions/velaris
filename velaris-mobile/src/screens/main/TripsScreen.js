@@ -6,114 +6,123 @@ import {
 import { Ionicons } from '@expo/vector-icons';
 import { useAuth } from '../../context/AuthContext';
 import { useTrips } from '../../hooks/useTrips';
+import { useAddress } from '../../hooks/useAddress';
 import {
     requestLocationPermissions,
     startLocationTracking,
-    stopLocationTracking,
+    stopLocationTrackingPermanently,
+    resumeLocationTracking,
     isTrackingActive,
+    isTrackingDisabledByUser,
 } from '../../services/locationService';
 import { formatDuration, formatTime, formatDate } from '../../utils/tripHelpers';
 import { theme } from '../../utils/theme';
+
+function TripCard({ item, index, trips }) {
+    const startAddress = useAddress(item.startLat, item.startLng, item.startAddress);
+    const endAddress = useAddress(item.endLat, item.endLng, item.endAddress);
+
+    const showDateHeader =
+        index === 0 ||
+        formatDate(item.startTime) !== formatDate(trips[index - 1]?.startTime);
+
+    const distanceKm = (item.distanceMeters / 1000).toFixed(1);
+
+    return (
+        <View>
+            {showDateHeader && (
+                <Text style={styles.dateHeader}>{formatDate(item.startTime)}</Text>
+            )}
+            <View style={styles.tripCard}>
+                <View style={styles.timelineCol}>
+                    <View style={styles.dotStart} />
+                    <View style={styles.timelineLine} />
+                    <View style={styles.dotEnd} />
+                </View>
+                <View style={styles.tripContent}>
+                    <View style={styles.pointRow}>
+                        <Text style={styles.coordText} numberOfLines={1}>
+                            {startAddress}
+                        </Text>
+                        <Text style={styles.timeText}>{formatTime(item.startTime)}</Text>
+                    </View>
+                    <View style={styles.statsRow}>
+                        <View style={styles.badge}>
+                            <Ionicons name="navigate-outline" size={11} color={theme.colors.accentPrimary} />
+                            <Text style={styles.badgeText}>{distanceKm} km</Text>
+                        </View>
+                        <View style={styles.badge}>
+                            <Ionicons name="time-outline" size={11} color={theme.colors.accentSecondary} />
+                            <Text style={styles.badgeText}>
+                                {formatDuration(item.startTime, item.endTime)}
+                            </Text>
+                        </View>
+                        <View style={styles.badge}>
+                            <Ionicons name="location-outline" size={11} color={theme.colors.textMuted} />
+                            <Text style={styles.badgeText}>{item.pointCount} pts</Text>
+                        </View>
+                    </View>
+                    <View style={styles.pointRow}>
+                        <Text style={styles.coordText} numberOfLines={1}>
+                            {endAddress}
+                        </Text>
+                        <Text style={styles.timeText}>{formatTime(item.endTime)}</Text>
+                    </View>
+                </View>
+            </View>
+        </View>
+    );
+}
 
 export function TripsScreen() {
     const { user } = useAuth();
     const { trips, loading } = useTrips();
     const [tracking, setTracking] = useState(false);
     const [checkingStatus, setCheckingStatus] = useState(true);
-    const flatListRef = useRef(null);
     const [toggling, setToggling] = useState(false);
+    const flatListRef = useRef(null);
 
     useEffect(() => {
         checkTracking();
     }, []);
 
     const checkTracking = async () => {
+        const disabled = await isTrackingDisabledByUser();
         const active = await isTrackingActive();
-        setTracking(active);
+        setTracking(active && !disabled);
         setCheckingStatus(false);
     };
 
     const toggleTracking = async () => {
-        if (toggling) return; // prevent double press
+        if (toggling) return;
         setToggling(true);
-
         try {
             if (tracking) {
-                await stopLocationTracking();
+                await stopLocationTrackingPermanently();
                 setTracking(false);
             } else {
-                console.log('Requesting permissions...');
                 const granted = await requestLocationPermissions();
-                console.log('Granted:', granted);
                 if (!granted) {
-                    Alert.alert('Permission Required', 'Enable background location in Settings.');
+                    Alert.alert(
+                        'Permission Required',
+                        'Velaris needs background location to learn your patterns. Enable it in Settings.',
+                        [{ text: 'OK' }]
+                    );
                     return;
                 }
-                console.log('Starting tracking...');
-                await startLocationTracking(user.uid);
-                console.log('Tracking started, setting state...');
+                await resumeLocationTracking(user.uid);
                 setTracking(true);
             }
         } catch (error) {
-            console.log('Toggle error:', error.message);
             Alert.alert('Error', error.message);
         } finally {
             setToggling(false);
         }
     };
 
-    const renderTrip = ({ item, index }) => {
-        const showDateHeader =
-            index === 0 ||
-            formatDate(item.startTime) !== formatDate(trips[index - 1]?.startTime);
-
-        const distanceKm = (item.distanceMeters / 1000).toFixed(1);
-
-        return (
-            <View>
-                {showDateHeader && (
-                    <Text style={styles.dateHeader}>{formatDate(item.startTime)}</Text>
-                )}
-                <View style={styles.tripCard}>
-                    <View style={styles.timelineCol}>
-                        <View style={styles.dotStart} />
-                        <View style={styles.timelineLine} />
-                        <View style={styles.dotEnd} />
-                    </View>
-                    <View style={styles.tripContent}>
-                        <View style={styles.pointRow}>
-                            <Text style={styles.coordText}>
-                                {item.startLat?.toFixed(4)}, {item.startLng?.toFixed(4)}
-                            </Text>
-                            <Text style={styles.timeText}>{formatTime(item.startTime)}</Text>
-                        </View>
-                        <View style={styles.statsRow}>
-                            <View style={styles.badge}>
-                                <Ionicons name="navigate-outline" size={11} color={theme.colors.accentPrimary} />
-                                <Text style={styles.badgeText}>{distanceKm} km</Text>
-                            </View>
-                            <View style={styles.badge}>
-                                <Ionicons name="time-outline" size={11} color={theme.colors.accentSecondary} />
-                                <Text style={styles.badgeText}>
-                                    {formatDuration(item.startTime, item.endTime)}
-                                </Text>
-                            </View>
-                            <View style={styles.badge}>
-                                <Ionicons name="location-outline" size={11} color={theme.colors.textMuted} />
-                                <Text style={styles.badgeText}>{item.pointCount} pts</Text>
-                            </View>
-                        </View>
-                        <View style={styles.pointRow}>
-                            <Text style={styles.coordText}>
-                                {item.endLat?.toFixed(4)}, {item.endLng?.toFixed(4)}
-                            </Text>
-                            <Text style={styles.timeText}>{formatTime(item.endTime)}</Text>
-                        </View>
-                    </View>
-                </View>
-            </View>
-        );
-    };
+    const renderTrip = ({ item, index }) => (
+        <TripCard item={item} index={index} trips={trips} />
+    );
 
     if (checkingStatus) {
         return (
@@ -137,20 +146,21 @@ export function TripsScreen() {
                     disabled={toggling}
                 >
                     <Ionicons
-                        name={toggling ? 'hourglass-outline' : tracking ? 'stop-circle' : 'play-circle'}
+                        name={toggling ? 'hourglass-outline' : tracking ? 'radio-button-on' : 'radio-button-off'}
                         size={18}
-                        color={toggling ? theme.colors.textMuted : tracking ? theme.colors.error : theme.colors.success}
+                        color={toggling ? theme.colors.textMuted : tracking ? theme.colors.success : theme.colors.textSecondary}
                     />
                     <Text style={[styles.trackingBtnText, tracking && styles.trackingBtnTextActive]}>
-                        {toggling ? 'Please wait...' : tracking ? 'Stop' : 'Start'}
+                        {toggling ? 'Wait...' : tracking ? 'On' : 'Off'}
                     </Text>
-                </TouchableOpacity>            </View>
+                </TouchableOpacity>
+            </View>
 
             {tracking && (
                 <View style={styles.banner}>
                     <View style={styles.bannerDot} />
                     <Text style={styles.bannerText}>
-                        Learning your patterns in the background
+                        Velaris is always learning your patterns
                     </Text>
                 </View>
             )}
@@ -164,7 +174,7 @@ export function TripsScreen() {
                     <Ionicons name="map-outline" size={48} color={theme.colors.textMuted} />
                     <Text style={styles.emptyTitle}>No trips yet</Text>
                     <Text style={styles.emptySub}>
-                        Tap Start, take a walk, and stop for a minute.{'\n'}
+                        Tap Start, take a walk, and stop for 30 seconds.{'\n'}
                         Your trip will appear here automatically.
                     </Text>
                 </View>
@@ -219,17 +229,16 @@ const styles = StyleSheet.create({
         borderColor: theme.colors.border,
     },
     trackingBtnActive: {
-        borderColor: theme.colors.error,
-        backgroundColor: 'rgba(252, 129, 129, 0.1)',
+        borderColor: theme.colors.success,
+        backgroundColor: 'rgba(72, 187, 120, 0.1)',
     },
+    trackingBtnTextActive: { color: theme.colors.success },
     trackingBtnText: {
         fontSize: 14,
         fontWeight: '600',
         color: theme.colors.textSecondary,
     },
-    trackingBtnTextActive: {
-        color: theme.colors.error,
-    },
+    trackingBtnTextActive: { color: theme.colors.error },
     banner: {
         flexDirection: 'row',
         alignItems: 'center',
@@ -310,6 +319,8 @@ const styles = StyleSheet.create({
         fontSize: 13,
         color: theme.colors.textPrimary,
         fontWeight: '500',
+        flex: 1,
+        marginRight: 8,
     },
     timeText: {
         fontSize: 12,

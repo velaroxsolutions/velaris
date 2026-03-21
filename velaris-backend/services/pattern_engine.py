@@ -23,7 +23,7 @@ def run_pattern_engine(uid: str, db):
 
         # ── Fetch all trips ────────────────────────────────────────────────
         trips_ref = (
-            db.collection("velaris_trips")
+            db.collection("velaris")
             .document(uid)
             .collection("trips")
         )
@@ -162,10 +162,10 @@ def save_pattern(uid, db, o_label, d_label, examples, trip_count, origin_coords,
     }
 
     # Save to velaris_patterns/{uid}/patterns/{patternId}
-    db.collection("velaris_patterns") \
-      .document(uid) \
-      .collection("patterns") \
-      .document(pattern_id) \
-      .set(pattern_data, merge=True)
+    db.collection("velaris") \
+    .document(uid) \
+    .collection("patterns") \
+    .document(pattern_id) \
+    .set(pattern_data, merge=True)
 
     print(f"[Pattern Engine] Saved pattern {pattern_id} — {trip_count} trips, confidence {confidence:.2f}")
