@@ -48,3 +48,4 @@ __pycache__/
 serviceAccountKey.json
 node_modules/
 seedTrips.js
+flyctl.exe
