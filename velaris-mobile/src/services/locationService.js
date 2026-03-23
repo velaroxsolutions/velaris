@@ -202,19 +202,18 @@ async function clearTripState() {
 }
 
 export async function requestLocationPermissions() {
-    console.log('Requesting foreground permission...');
-    const { status: foreground } = await Location.requestForegroundPermissionsAsync();
-    console.log('Foreground status:', foreground);
-    if (foreground !== 'granted') return false;
+    try {
+        const { status: foreground } = await Location.requestForegroundPermissionsAsync();
+        if (foreground !== 'granted') return false;
 
-    console.log('Requesting background permission...');
-    const { status: background } = await Location.requestBackgroundPermissionsAsync();
-    console.log('Background status:', background);
-    if (background !== 'granted') return false;
+        const { status: background } = await Location.requestBackgroundPermissionsAsync();
+        if (background !== 'granted') return false;
 
-    return true;
+        return true;
+    } catch (e) {
+        return false;
+    }
 }
-
 export async function startLocationTracking(userId) {
     await AsyncStorage.setItem(STORAGE_KEYS.USER_ID, userId);
     const isTracking = await Location.hasStartedLocationUpdatesAsync(LOCATION_TASK).catch(() => false);
