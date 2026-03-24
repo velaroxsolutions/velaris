@@ -15,12 +15,15 @@ import { PatternsScreen } from './src/screens/main/PatternsScreen';
 import { RouteCardScreen } from './src/screens/main/RouteCardScreen';
 import { useNotifications } from './src/hooks/useNotifications';
 import { theme } from './src/utils/theme';
+import { SafeAreaProvider } from 'react-native-safe-area-context';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 const Stack = createNativeStackNavigator();
 const Tab = createBottomTabNavigator();
 
 function MainTabs({ onNotificationResponse }) {
   useNotifications(onNotificationResponse);
+  const insets = useSafeAreaInsets();
 
   return (
     <Tab.Navigator
@@ -30,9 +33,9 @@ function MainTabs({ onNotificationResponse }) {
           backgroundColor: theme.colors.backgroundSecondary,
           borderTopColor: theme.colors.border,
           borderTopWidth: 1,
-          paddingBottom: 8,
+          paddingBottom: 8 + insets.bottom,
           paddingTop: 8,
-          height: 64,
+          height: 64 + insets.bottom,
         },
         tabBarActiveTintColor: theme.colors.accentPrimary,
         tabBarInactiveTintColor: theme.colors.textMuted,
@@ -103,9 +106,13 @@ function Navigation() {
 
 export default function App() {
   return (
-    <AuthProvider>
-      <StatusBar style="light" />
-      <Navigation />
-    </AuthProvider>
+    <SafeAreaProvider>
+
+      <AuthProvider>
+        <StatusBar style="light" />
+        <Navigation />
+      </AuthProvider>
+
+    </SafeAreaProvider>
   );
 }

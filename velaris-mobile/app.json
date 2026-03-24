@@ -12,11 +12,12 @@
       "backgroundColor": "#080d1a"
     },
     "android": {
+      "package": "com.velarox.velaris",
+      "versionCode": 1,
       "adaptiveIcon": {
         "foregroundImage": "./assets/adaptive-icon.png",
         "backgroundColor": "#080d1a"
       },
-      "package": "com.velarox.velaris",
       "permissions": [
         "ACCESS_FINE_LOCATION",
         "ACCESS_COARSE_LOCATION",
@@ -25,7 +26,8 @@
         "FOREGROUND_SERVICE_LOCATION",
         "RECEIVE_BOOT_COMPLETED",
         "VIBRATE"
-      ]
+      ],
+      "softwareKeyboardLayoutMode": "pan" 
     },
     "plugins": [
       [

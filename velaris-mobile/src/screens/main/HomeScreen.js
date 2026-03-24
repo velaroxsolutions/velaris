@@ -125,12 +125,18 @@ export function HomeScreen({ navigation }) {
     );
 
     // Tracking status
-    isTrackingActive().then(setTracking);
+    isTrackingActive().then(setTracking); // initial check
 
+    const trackingInterval = setInterval(() => {
+      isTrackingActive().then(setTracking);
+    }, 3000); // re-check every 3 seconds
+
+    // And add it to the cleanup return:
     return () => {
       tripsUnsub();
       countUnsub();
       patternsUnsub();
+      clearInterval(trackingInterval); // ← add this
     };
   }, [user]);
 
